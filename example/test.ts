@@ -34,4 +34,19 @@ test("HTTP tests", async () => {
     );
     res.expectRedirect();
   });
+  await test("Body Schema", async () => {
+    const res = await postJson(
+      url("http://localhost/post", {
+        url: "http://localhost/status/404",
+      }),
+      {
+        hello: "world",
+      }
+    );
+    res.expectBodySchema({
+      json: {
+        hello: "world",
+      },
+    });
+  });
 });

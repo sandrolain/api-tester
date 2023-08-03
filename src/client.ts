@@ -1,4 +1,5 @@
 import assert from "assert/strict";
+import { compare } from "./validation";
 
 const JsonHeaders: HeadersEntries = [["Content-Type", "application/json"]];
 
@@ -141,6 +142,19 @@ class ResponseResult<T = unknown> {
     throw new assert.AssertionError({
       message: `Expected Server Error Status but was ${status}`,
       stackStartFn: ResponseResult.prototype.expectServerError,
+    });
+  }
+
+  expectBodySchema(schema: any) {
+    const errors = compare(this.body, schema);
+    if (errors.length === 0) {
+      return;
+    }
+    throw new assert.AssertionError({
+      message: `Invalid body schema: ${errors
+        .map((err) => err.message)
+        .join(". ")}`,
+      stackStartFn: ResponseResult.prototype.expectBodySchema,
     });
   }
 }

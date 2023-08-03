@@ -25,18 +25,41 @@ class ValidationError<T> extends Error {
   }
 }
 
-function error<T>(message: string, args: ValidationArgs<T>) {
-  const err = new ValidationError(message, args.path, args.value);
-  args.errors.push(err);
+function error<T>(message: string | Error, args: ValidationArgs<T>): number {
+  if (message instanceof ValidationError) {
+    return args.errors.push(message);
+  }
+  if (message instanceof Error) {
+    return args.errors.push(
+      new ValidationError(message.message, args.path, args.value)
+    );
+  }
+  return args.errors.push(new ValidationError(message, args.path, args.value));
 }
 
-export type ValidationFunction<T> = (args: ValidationArgs<T>) => void;
+export type ValidationAssertionFunction<T> = (args: ValidationArgs<T>) => void;
+
+export type ValidationFunction<T> = (value: T, path: Path) => Error | void;
 
 export class ValidationAssertion<T> {
-  constructor(readonly match: ValidationFunction<T>) {}
+  constructor(readonly match: ValidationAssertionFunction<T>) {}
 }
 
 export class $ {
+  static custom<T = any>(fn: ValidationFunction<T>) {
+    return new ValidationAssertion<T>((args) => {
+      let err: Error | void;
+      try {
+        err = fn(args.value, [...args.path]);
+      } catch (e) {
+        err = e as Error;
+      }
+      if (err instanceof Error) {
+        error(err, args);
+      }
+    });
+  }
+
   static exact(match: any) {
     return new ValidationAssertion((args) => {
       if (match === args.value) {
@@ -62,7 +85,7 @@ export class $ {
     });
   }
 
-  static regexp(regexp: RegExp, name?: string) {
+  static match(regexp: RegExp, name?: string) {
     return new ValidationAssertion((args) => {
       if (typeof args.value !== "string") {
         return error(`Not a string to match ${name ?? regexp}`, args);
@@ -74,7 +97,7 @@ export class $ {
   }
 
   static email() {
-    return this.regexp(
+    return this.match(
       /^(([^<>()[\]\.,;:\s@\"]+(\.[^<>()[\]\.,;:\s@\"]+)*)|(\".+\"))@(([^<>()[\]\.,;:\s@\"]+\.)+[^<>()[\]\.,;:\s@\"]{2,})$/i,
       "Email"
     );
@@ -85,6 +108,16 @@ export class $ {
       if (args.value !== null) {
         compareObject(args.value, schema, [...args.path], args.errors);
       }
+    });
+  }
+
+  static size(size: number, schema: any) {
+    return new ValidationAssertion((args) => {
+      const len = (args.value as any).length;
+      if (len !== size) {
+        error(`Unmatching size, expected "${size}", given "${len}"`, args);
+      }
+      compareObject(args.value, schema, [...args.path], args.errors);
     });
   }
 }
@@ -114,11 +147,23 @@ function compareObject<T = any>(
   }
 
   switch (schemaType) {
+    case "function":
+      const valueLen = (value as Function).length;
+      const schemaLen = (schema as Function).length;
+      if (valueLen !== schemaLen) {
+        return error(
+          `Unmatching function arguments, expected "${schemaLen}", given "${valueLen}"`,
+          { path, errors, value }
+        );
+      }
+      break;
     case "array":
       if (schema.length > 0) {
-        const schemaVal = schema[0];
-        // TODO: nel caso di length > 1, comparare esattamente l'array
-        for (let i = 0; i < (value as any[]).length; i++) {
+        const valueLen = (value as any[]).length;
+        const schemaLen = (schema as any[]).length;
+        const len = Math.max(valueLen, schemaLen);
+        for (let i = 0; i < len; i++) {
+          const schemaVal = schemaLen > 1 ? schema[i] : schema[0];
           compareObject((value as any[])[i], schemaVal, [...path, i], errors);
         }
       }
